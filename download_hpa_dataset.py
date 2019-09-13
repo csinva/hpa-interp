@@ -37,6 +37,5 @@ def download_hpa_v18(data_dir, img_list, process_num=10):
 
 if __name__ == "__main__":
     img_list = pd.read_csv('https://kth.box.com/shared/static/fpqus92ep1dgfeuh6pnvg1c9ujwje4b1.csv')
-    data_dir = '/scratch/users/vision/data/hpa'
-    os.makedirs(data_dir, exist_ok=True)
-    download_hpa_v18(data_dir, img_list)
+
+    download_hpa_v18('./hpa_v18', img_list)
