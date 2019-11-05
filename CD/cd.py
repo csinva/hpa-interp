@@ -8,41 +8,35 @@ from cd_propagate import *
 
 
 def cd_densenet(blob, im_torch, model):
-    '''This implementation of cd is very long so that we can view CD at intermediate layers
-    In reality, one should use the loop contained in the above cd function
+    '''CD Densenet
     '''
     # set up model
     model.eval()
-
-    # set up blobs
-    blob = torch.cuda.FloatTensor(blob)
-    relevant = blob * im_torch
-    irrelevant = (1 - blob) * im_torch
-
     mods = forward_mods(model)
 
+    # set up blobs
+    device = torch.device("cuda:0")
+    blob = blob.to(device)
+    blob = torch.cuda.FloatTensor(blob)
+
     scores = []
-    scores.append((relevant.clone(), irrelevant.clone()))
+    output = im_torch.clone().detach().to(device)
+    # decompose
+    relevant = blob * output
+    irrelevant = (1 - blob) * output
 
     # propagate layers
     with torch.no_grad():
         # growth rate = 4; block config = (6, 12, 24, 16)
         # normalization step
-        mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
-        std =  [0.122813, 0.085745, 0.129882, 0.119411]
-        bias = torch.zeros(irrelevant.size()).to('cuda')
-        rel = torch.zeros(irrelevant.size()).to('cuda')
-        irrel = torch.zeros(irrelevant.size()).to('cuda')
-        for i in range(model.module.in_channels):
-            bias[:,i,:,:] = (bias[:,i,:,:] - mean[i]) / std[i]
-            rel[:,i,:,:] = relevant[:,i,:,:] / std[i]
-            irrel[:,i,:,:] = irrelevant[:,i,:,:] / std[i]
-        prop_rel = torch.abs(rel)
-        prop_irrel = torch.abs(irrel)
-        prop_sum = prop_rel + prop_irrel
-        prop_rel = torch.div(prop_rel, prop_sum)
-        prop_irrel = torch.div(prop_irrel, prop_sum)
-        relevant, irrelevant = rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
+        # mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
+        # std =  [0.122813, 0.085745, 0.129882, 0.119411]
+        # for i in range(model.module.in_channels):
+            # output[:,i,:,:] = (output[:,i,:,:] - mean[i]) / std[i]
+        # decompose
+        # relevant = blob * output
+        # irrelevant = (1 - blob) * output
+        relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, norm)
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # initial convolution
@@ -125,7 +119,7 @@ def cd_densenet(blob, im_torch, model):
         relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, mods[17])
         scores.append((relevant.clone(), irrelevant.clone()))
 
-    return relevant, irrelevant, scores
+    return relevant.cpu(), irrelevant.cpu(), scores
 
 
 def forward_mods(model):
@@ -180,8 +174,8 @@ def forward_pass(im_torch, model):
     mods = forward_mods(model)
 
     outputs = []
-    output = im_torch.new_tensor(im_torch)
-    outputs.append(output.clone())
+    device = torch.device("cuda:0")
+    output = im_torch.clone().detach().to(device)
 
     mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
     std =  [0.122813, 0.085745, 0.129882, 0.119411]
@@ -209,4 +203,14 @@ def forward_pass(im_torch, model):
         output = output.view(output.size(0), -1)
         output = mods[17](output)
         outputs.append(output.clone())
-    return output, outputs
+    return output.cpu(), outputs
+
+
+# normalize input tensors
+def norm(inputs):
+    x = inputs.clone().detach()
+    mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
+    std =  [0.122813, 0.085745, 0.129882, 0.119411]
+    for i in range(x.size()[1]):
+        x[:,i,:,:] = (x[:,i,:,:] - mean[i]) / std[i]
+    return x

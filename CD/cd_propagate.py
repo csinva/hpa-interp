@@ -86,6 +86,7 @@ def propagate_batchnorm2d(relevant, irrelevant, module, device='cuda'):
     prop_rel = torch.abs(rel)
     prop_irrel = torch.abs(irrel)
     prop_sum = prop_rel + prop_irrel
+
     # if prop_sum is zero set the fraction to be 1/2
     ind = prop_sum==0
     prop_rel[ind] = 1.
@@ -132,7 +133,7 @@ def propagate_transition(relevant, irrelevant, trans_modules, device='cuda'):
 
 # propagate denselayer
 def propagate_denselayer(relevant, irrelevant, modules, device='cuda'):
-    rel, irrel = relevant.new_tensor(relevant).to(device), irrelevant.new_tensor(irrelevant).to(device)
+    rel, irrel = relevant.clone().detach().to(device), irrelevant.clone().detach().to(device)
 
     # propagate dense layers
     rel, irrel = propagate_batchnorm2d(rel, irrel, modules[0])
