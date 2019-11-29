@@ -7,12 +7,26 @@ from scipy.special import expit as sigmoid
 from cd_propagate import *
 
 
+# normalize input tensors
+def norm(inputs):
+    x = inputs.clone().detach()
+    mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
+    std =  [0.122813, 0.085745, 0.129882, 0.119411]
+    for i in range(x.size()[1]):
+        x[:,i,:,:] = (x[:,i,:,:] - mean[i]) / std[i]
+    return x
+
+
+# cd scores for densenet121
 def cd_densenet(blob, im_torch, model):
     '''CD Densenet
     '''
     # set up model
     model.eval()
+
+    # get modules for network
     mods = forward_mods(model)
+    mods.insert(0, norm) # add normalization in the beginning
 
     # set up blobs
     device = torch.device("cuda:0")
@@ -25,68 +39,61 @@ def cd_densenet(blob, im_torch, model):
     relevant = blob * output
     irrelevant = (1 - blob) * output
 
+    # normalization
+    relevant, irrelevant = blob * mods[0](relevant + irrelevant), (1 - blob) * mods[0](relevant + irrelevant)
+    scores.append((relevant.clone(), irrelevant.clone()))
+
     # propagate layers
     with torch.no_grad():
         # growth rate = 4; block config = (6, 12, 24, 16)
-        # normalization step
-        # mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
-        # std =  [0.122813, 0.085745, 0.129882, 0.119411]
-        # for i in range(model.module.in_channels):
-            # output[:,i,:,:] = (output[:,i,:,:] - mean[i]) / std[i]
-        # decompose
-        # relevant = blob * output
-        # irrelevant = (1 - blob) * output
-        relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, norm)
-        scores.append((relevant.clone(), irrelevant.clone()))
-
         # initial convolution
-        relevant, irrelevant = propagate_init_conv(relevant, irrelevant, mods[0])
+        relevant, irrelevant = propagate_init_conv(relevant, irrelevant, mods[1])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         if model.module.large:
-            relevant, irrelevant = propagate_pooling(relevant, irrelevant, mods[1])
+            relevant, irrelevant = propagate_pooling(relevant, irrelevant, mods[2])
             scores.append((relevant.clone(), irrelevant.clone()))
 
         # denseblock1
-        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[2])
+        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[3])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # transition1
-        relevant, irrelevant = propagate_transition(relevant, irrelevant, mods[3])
+        relevant, irrelevant = propagate_transition(relevant, irrelevant, mods[4])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # denseblock2
-        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[4])
+        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[5])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # transition2
-        relevant, irrelevant = propagate_transition(relevant, irrelevant, mods[5])
+        relevant, irrelevant = propagate_transition(relevant, irrelevant, mods[6])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # denseblock3
-        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[6])
+        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[7])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # transition3
-        relevant, irrelevant = propagate_transition(relevant, irrelevant, mods[7])
+        relevant, irrelevant = propagate_transition(relevant, irrelevant, mods[8])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # denseblock4
-        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[8])
+        relevant, irrelevant = propagate_denseblock(relevant, irrelevant, mods[9])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # final batch norm
-        relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, mods[9])
+        relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, mods[10])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         # ReLU layer
-        relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[10])
+        relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[11])
         scores.append((relevant.clone(), irrelevant.clone()))
 
         if model.module.dropout:
             # adaptive avgpooling and maxpooling
-            rel0, irrel0 = propagate_avgpooling(relevant, irrelevant, mods[11])
-            rel1, irrel1 = propagate_pooling(relevant, irrelevant, mods[12])
+            rel0, irrel0 = propagate_avgpooling(relevant, irrelevant, mods[12])
+            rel1, irrel1 = propagate_pooling(relevant, irrelevant, mods[13])
             relevant, irrelevant = torch.cat((rel0, rel1), dim=1), torch.cat((irrel0, irrel1), dim=1)
             scores.append((relevant.clone(), irrelevant.clone()))
 
@@ -96,19 +103,19 @@ def cd_densenet(blob, im_torch, model):
             scores.append((relevant.clone(), irrelevant.clone()))
 
             # bn1 layer
-            relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, mods[13])
+            relevant, irrelevant = propagate_batchnorm1d(relevant, irrelevant, mods[14])
             scores.append((relevant.clone(), irrelevant.clone()))
 
             # fn1 layer
-            relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, mods[14])
+            relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[15])
             scores.append((relevant.clone(), irrelevant.clone()))
 
             # ReLU layer
-            relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[15])
+            relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[16])
             scores.append((relevant.clone(), irrelevant.clone()))
 
             # bn2 layer
-            relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, mods[16])
+            relevant, irrelevant = propagate_batchnorm1d(relevant, irrelevant, mods[17])
             scores.append((relevant.clone(), irrelevant.clone()))
 
         # reshape
@@ -116,7 +123,7 @@ def cd_densenet(blob, im_torch, model):
         irrelevant = irrelevant.view(irrelevant.size(0), -1)
 
         # linear layer
-        relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, mods[17])
+        relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[18])
         scores.append((relevant.clone(), irrelevant.clone()))
 
     return relevant.cpu(), irrelevant.cpu(), scores
@@ -177,10 +184,7 @@ def forward_pass(im_torch, model):
     device = torch.device("cuda:0")
     output = im_torch.clone().detach().to(device)
 
-    mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
-    std =  [0.122813, 0.085745, 0.129882, 0.119411]
-    for i in range(model.module.in_channels):
-        output[:,i,:,:] = (output[:,i,:,:] - mean[i]) / std[i]
+    output = norm(output)
     outputs.append(output.clone())
     # propagate layers
     with torch.no_grad():
@@ -204,13 +208,3 @@ def forward_pass(im_torch, model):
         output = mods[17](output)
         outputs.append(output.clone())
     return output.cpu(), outputs
-
-
-# normalize input tensors
-def norm(inputs):
-    x = inputs.clone().detach()
-    mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
-    std =  [0.122813, 0.085745, 0.129882, 0.119411]
-    for i in range(x.size()[1]):
-        x[:,i,:,:] = (x[:,i,:,:] - mean[i]) / std[i]
-    return x

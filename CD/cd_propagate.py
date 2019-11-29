@@ -5,20 +5,8 @@ import numpy as np
 from scipy.special import expit as sigmoid
 
 
-# propagate a three-part
-def propagate_three(a, b, c, activation):
-    a_contrib = 0.5 * (activation(a + c) - activation(c) + activation(a + b + c) - activation(b + c))
-    b_contrib = 0.5 * (activation(b + c) - activation(c) + activation(a + b + c) - activation(a + c))
-    return a_contrib, b_contrib, activation(c)
-
-
-# propagate tanh nonlinearity
-def propagate_tanh_two(a, b):
-    return 0.5 * (np.tanh(a) + (np.tanh(a + b) - np.tanh(b))), 0.5 * (np.tanh(b) + (np.tanh(a + b) - np.tanh(a)))
-
-
-# propagate convolutional or linear layer
-def propagate_conv_linear(relevant, irrelevant, module, device='cuda'):
+# propagate linear layer
+def propagate_linear(relevant, irrelevant, module, device='cuda'):
     bias = module(torch.zeros(irrelevant.size()).to(device))
     rel = module(relevant) - bias
     irrel = module(irrelevant) - bias
@@ -28,13 +16,24 @@ def propagate_conv_linear(relevant, irrelevant, module, device='cuda'):
     prop_irrel = torch.abs(irrel)
     prop_sum = prop_rel + prop_irrel
     # if prop_sum is zero set the fraction to be 1/2
-    ind = prop_sum==0
-    prop_rel[ind] = 1.
-    prop_irrel[ind] = 1.
-    prop_sum[ind] = 2.
+    # ind = prop_sum==0
+    # prop_rel[ind] = 1.
+    # prop_irrel[ind] = 1.
+    # prop_sum[ind] = 2.
     prop_rel = torch.div(prop_rel, prop_sum)
-    prop_irrel = torch.div(prop_irrel, prop_sum)
-    return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
+    # prop_rel[torch.isnan(prop_rel)] = 0.1
+    rel = rel + torch.mul(prop_rel, bias)
+    irrel = module(relevant + irrelevant) - rel
+    return rel, irrel
+    # prop_irrel = torch.div(prop_irrel, prop_sum)
+    # return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
+
+
+# propagate conv layer
+def propagate_conv(relevant, irrelevant, module, device='cuda'):
+    rel = module(relevant)
+    irrel = module(relevant + irrelevant) - rel
+    return rel, irrel
 
 
 # propagate ReLu nonlinearity
@@ -72,29 +71,58 @@ def propagate_dropout(relevant, irrelevant, dropout):
 
 # propagate avgpooling operation
 def propagate_avgpooling(relevant, irrelevant, pooler):
-    return pooler(relevant), pooler(irrelevant)
+    rel = pooler(relevant)
+    irrel = pooler(relevant + irrelevant) - rel
+    return rel, irrel
 
 
-# propagate batchnorm operation
-### can we do as conv/linear layers
+# propagate batchnorm2d operation
 def propagate_batchnorm2d(relevant, irrelevant, module, device='cuda'):
     bias = module(torch.zeros(irrelevant.size()).to(device))
     rel = module(relevant) - bias
     irrel = module(irrelevant) - bias
-
     # elementwise proportional
+    # prop_rel = torch.abs(torch.mean(relevant, dim=(2,3)))
+    # prop_irrel = torch.abs(torch.mean(irrelevant, dim=(2,3)))
+    # prop_sum = prop_rel + prop_irrel
+    # prop_rel = torch.div(prop_rel, prop_sum)
+    # prop_rel[torch.isnan(prop_rel)] = 0.01
+    # prop_rel.unsqueeze_(2).unsqueeze_(3)
+    # rel = rel + torch.mul(prop_rel, bias)
+    # irrel = module(relevant + irrelevant) - rel
+    # return rel, irrel
     prop_rel = torch.abs(rel)
     prop_irrel = torch.abs(irrel)
     prop_sum = prop_rel + prop_irrel
-
-    # if prop_sum is zero set the fraction to be 1/2
-    ind = prop_sum==0
-    prop_rel[ind] = 1.
-    prop_irrel[ind] = 1.
-    prop_sum[ind] = 2.
     prop_rel = torch.div(prop_rel, prop_sum)
-    prop_irrel = torch.div(prop_irrel, prop_sum)
-    return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
+    prop_rel[torch.isnan(prop_rel)] = .0
+    rel = rel + torch.mul(prop_rel, bias)
+    irrel = module(relevant + irrelevant) - rel
+    return rel, irrel
+
+
+# propagate batchnorm1d operation
+def propagate_batchnorm1d(relevant, irrelevant, module, device='cuda'):
+    bias = module(torch.zeros(irrelevant.size()).to(device))
+    rel = module(relevant) - bias
+    irrel = module(irrelevant) - bias
+    # elementwise proportional
+    # prop_rel = torch.abs(relevant)
+    # prop_irrel = torch.abs(irrelevant)
+    # prop_sum = prop_rel + prop_irrel
+    # prop_rel = torch.div(prop_rel, prop_sum)
+    # prop_rel[torch.isnan(prop_rel)] = 0.01
+    # rel = rel + torch.mul(prop_rel, bias)
+    # irrel = module(relevant + irrelevant) - rel
+    # return rel, irrel
+    prop_rel = torch.abs(rel)
+    prop_irrel = torch.abs(irrel)
+    prop_sum = prop_rel + prop_irrel
+    prop_rel = torch.div(prop_rel, prop_sum)
+    prop_rel[torch.isnan(prop_rel)] = .0
+    rel = rel + torch.mul(prop_rel, bias)
+    irrel = module(relevant + irrelevant) - rel
+    return rel, irrel
 
 
 # propagate initial convolution operation
@@ -103,7 +131,7 @@ def propagate_init_conv(relevant, irrelevant, init_modules, device='cuda'):
     # (norm0): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
     # (relu0): ReLU(inplace)
     # (pool0): MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
-    relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, init_modules[0])
+    relevant, irrelevant = propagate_conv(relevant, irrelevant, init_modules[0])
     relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, init_modules[1])
     relevant, irrelevant = propagate_relu(relevant, irrelevant, init_modules[2])
     relevant, irrelevant = propagate_pooling(relevant, irrelevant, init_modules[3])
@@ -126,7 +154,7 @@ def propagate_transition(relevant, irrelevant, trans_modules, device='cuda'):
     # (pool): AvgPool2d(kernel_size=2, stride=2, padding=0)
     relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, trans_modules[0])
     relevant, irrelevant = propagate_relu(relevant, irrelevant, trans_modules[1])
-    relevant, irrelevant = propagate_conv_linear(relevant, irrelevant, trans_modules[2])
+    relevant, irrelevant = propagate_conv(relevant, irrelevant, trans_modules[2])
     relevant, irrelevant = propagate_avgpooling(relevant, irrelevant, trans_modules[3])
     return relevant, irrelevant
 
@@ -138,10 +166,10 @@ def propagate_denselayer(relevant, irrelevant, modules, device='cuda'):
     # propagate dense layers
     rel, irrel = propagate_batchnorm2d(rel, irrel, modules[0])
     rel, irrel = propagate_relu(rel, irrel, modules[1])
-    rel, irrel = propagate_conv_linear(rel, irrel, modules[2])
+    rel, irrel = propagate_conv(rel, irrel, modules[2])
     rel, irrel = propagate_batchnorm2d(rel, irrel, modules[3])
     rel, irrel = propagate_relu(rel, irrel, modules[4])
-    rel, irrel = propagate_conv_linear(rel, irrel, modules[5])
+    rel, irrel = propagate_conv(rel, irrel, modules[5])
     return torch.cat([relevant, rel], 1), torch.cat([irrelevant, irrel], 1)
 
 

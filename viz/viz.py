@@ -16,16 +16,18 @@ if lib_path not in sys.path:
 from config.config import *
 
 
-def viz_channels_separate(imgs, img_index, pred_results, rel_scores=None, label_index=-1):
-    # print("Image ID=={}: true labels are [{}]; and predicted labels are [{}]".format(img_index, pred_results.loc[img_index, "Target"], pred_results.loc[img_index, "Predicted"]))
-    # print("True labels correspond to: ", end='')
-    # for location in pred_results.loc[img_index, "Target"].split():
-    #     print('({}) '.format(LABEL_NAMES[int(location)]), end='')
-    # print("\nPredicted labels correspond to: ", end='')
-    # for location in pred_results.loc[img_index, "Predicted"].split():
-    #     print('({})'.format(LABEL_NAMES[int(location)]), end='')
+def viz_channels_separate(imgs, img_index, rel_scores=None, pred_results=None):
+    if pred_results is not None:
+        print("Image ID=={}: true labels are [{}]; and predicted labels are [{}]".\
+                        format(img_index, pred_results.loc[img_index, "Target"], pred_results.loc[img_index, "Predicted"]))
+        print("True labels correspond to: ", end='')
+        for location in pred_results.loc[img_index, "Target"].split():
+            print('({}) '.format(LABEL_NAMES[int(location)]), end='')
+        print("\nPredicted labels correspond to: ", end='')
+        for location in pred_results.loc[img_index, "Predicted"].split():
+            print('({})'.format(LABEL_NAMES[int(location)]), end='')
 
-    if label_index == -1:
+    if rel_scores is None:
         # get each image channel as a greyscale image
         img_red = imgs[img_index][0,:,:]
         img_green = imgs[img_index][1,:,:]
@@ -55,14 +57,14 @@ def viz_channels_separate(imgs, img_index, pred_results, rel_scores=None, label_
         img_yellow = imgs[img_index][3,:,:]
 
         # get relative scores for each image channel
-        rel_red = rel_scores[img_index][0,:,:,label_index]
-        rel_green = rel_scores[img_index][1,:,:,label_index]
-        rel_blue = rel_scores[img_index][2,:,:,label_index]
-        rel_yellow = rel_scores[img_index][3,:,:,label_index]
+        rel_red = rel_scores[img_index][0,:,:]
+        rel_green = rel_scores[img_index][1,:,:]
+        rel_blue = rel_scores[img_index][2,:,:]
+        rel_yellow = rel_scores[img_index][3,:,:]
 
         # get scales for reletive scores
-        vmin = torch.min(torch.min(torch.min(rel_scores[img_index,:,:,:,label_index], 1)[0], 1)[0]).item()
-        vmax = torch.max(torch.max(torch.max(rel_scores[img_index,:,:,:,label_index], 1)[0], 1)[0]).item()
+        # vmin = torch.min(torch.min(torch.min(rel_scores[img_index,:,:,:], 1)[0], 1)[0]).item()
+        # vmax = torch.max(torch.max(torch.max(rel_scores[img_index,:,:,:], 1)[0], 1)[0]).item()
 
         fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(12,6))
         ax[0, 0].imshow(img_green, cmap="greens")
@@ -73,10 +75,14 @@ def viz_channels_separate(imgs, img_index, pred_results, rel_scores=None, label_
         ax[0, 2].set_title("Nucleus", fontsize=15)
         ax[0, 3].imshow(img_yellow, cmap="yellows")
         ax[0, 3].set_title("ER", fontsize=15)
-        im = ax[1, 0].imshow(rel_green, cmap="RdBu", vmin=vmin, vmax=vmax)
-        im = ax[1, 1].imshow(rel_red, cmap="RdBu", vmin=vmin, vmax=vmax)
-        im = ax[1, 2].imshow(rel_blue, cmap="RdBu", vmin=vmin, vmax=vmax)
-        im = ax[1, 3].imshow(rel_yellow, cmap="RdBu", vmin=vmin, vmax=vmax)
+        # im = ax[1, 0].imshow(rel_green, cmap="RdBu", vmin=vmin, vmax=vmax)
+        # im = ax[1, 1].imshow(rel_red, cmap="RdBu", vmin=vmin, vmax=vmax)
+        # im = ax[1, 2].imshow(rel_blue, cmap="RdBu", vmin=vmin, vmax=vmax)
+        # im = ax[1, 3].imshow(rel_yellow, cmap="RdBu", vmin=vmin, vmax=vmax)
+        im = ax[1, 0].imshow(rel_green, cmap="RdBu")
+        im = ax[1, 1].imshow(rel_red, cmap="RdBu")
+        im = ax[1, 2].imshow(rel_blue, cmap="RdBu")
+        im = ax[1, 3].imshow(rel_yellow, cmap="RdBu")
         for i in range(2):
             for j in range(4):
                 ax[i, j].set_xticklabels([])
@@ -88,7 +94,7 @@ def viz_channels_separate(imgs, img_index, pred_results, rel_scores=None, label_
         plt.show()
 
 
-def viz_channels_combined(imgs, img_index, pred_results, figsize=(8,8)):
+def viz_channels_combined(imgs, img_index, pred_results=None):
     # get each image channel as a greyscale image
     img_red = imgs[img_index][0,:,:]
     img_green = imgs[img_index][1,:,:]
@@ -105,7 +111,7 @@ def viz_channels_combined(imgs, img_index, pred_results, figsize=(8,8)):
     img = cv2.add(img, blueRGB)
 
     #show result image
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=(6,6))
     ax.imshow(img)
     ax.set_title("red + green + blue", fontsize=15)
     ax.set_xticklabels([])
@@ -160,6 +166,14 @@ plt.register_cmap(name='greens', data=cdict1)
 plt.register_cmap(name='reds', data=cdict2)
 plt.register_cmap(name='blues', data=cdict3)
 plt.register_cmap(name='yellows', data=cdict4)
+
+
+#### gradCAM viz
+# heatmap = cv2.applyColorMap(np.uint8(255*cam), cv2.COLORMAP_JET)
+# heatmap = np.float32(heatmap) / 255
+# cam = heatmap + np.float32(img)
+# cam = cam / np.max(cam)
+# cam = np.uint8(255 * cam)
 
 
 # from PIL import Image

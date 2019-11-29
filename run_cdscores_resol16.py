@@ -1,4 +1,3 @@
-# import packages
 import torch
 import torch.nn as nn
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
@@ -13,9 +12,10 @@ opj = os.path.join
 ope = os.path.exists
 
 this_dir = os.getcwd()
-lib_path = opj(this_dir, 'bestfitting/protein_clean/src')
-if lib_path not in sys.path:
-    sys.path.insert(0, lib_path)
+lib_paths = [opj(this_dir, 'bestfitting/protein_clean/src'), opj(this_dir, 'CD'), opj(this_dir, 'viz')]
+for lib_path in lib_paths:
+    if lib_path not in sys.path:
+        sys.path.insert(0, lib_path)
 import train_cls_net # import Protein class
 from net import _init_paths
 from config.config import * # set directory paths (DATA_DIR, RESULT_DIR etc)
@@ -24,7 +24,20 @@ from utils.augment_util import * # import augmentation functions
 from net.loss_funcs.kaggle_metric import prob_to_result # import prob_to_result
 from net.loss_funcs.kaggle_metric import get_probs_f1_score # import get_probs_f1_score
 
-### Set parameters and directories ###
+from cd_propagate import *
+from cd import *
+import viz
+from copy import deepcopy
+from matplotlib import gridspec
+import pickle as pkl
+import itertools
+import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings("ignore")
+
+import importlib
+importlib.reload(viz)
+
 module = 'densenet'
 model_name = 'class_densenet121_large_dropout'
 out_dir = 'external_crop1024_focal_slov_hardlog_clean'
@@ -77,7 +90,6 @@ data_args = {
     'predict_aug':predict_aug,
 }
 
-### Load models and predict labels ###
 # get Protein class
 trainer = train_cls_net.Protein(dir_args,
                                 train_batch_size=train_batch_size,
@@ -138,13 +150,14 @@ test_dataset = protein_dataset.ProteinDataset(trainer.test_split_file,
                                                in_channels=trainer.in_channels,
                                                transform=None,
                                                crop_size=trainer.crop_size,
-                                               random_crop=trainer.seed!=0,
+#                                                random_crop=trainer.seed!=0,
+                                              random_crop=trainer.seed!=1,
                                                )
 
 test_loader = protein_dataset.DataLoader(test_dataset,
                                          sampler=SequentialSampler(test_dataset),
-#                                          batch_size=trainer.test_batch_size,
-                                         batch_size=4,
+                                         batch_size=trainer.test_batch_size,
+#                                          batch_size=4,
                                          drop_last=False,
                                          num_workers=trainer.num_workers,
                                          pin_memory=True)
@@ -178,133 +191,132 @@ net.eval()
 
 print('ready to evaluate')
 
-# count number of test points
-n = 0
+def cd_activation_map(blob, feature_map, model):
+    '''CD Densenet
+    '''
+    scores = []
+    device = torch.device("cuda:0")
+    blob = blob.to(device)
+    blob = torch.cuda.FloatTensor(blob)
 
-# get img_ids from dataset
-img_ids = np.array(test_dataset.img_ids)
+    output = feature_map.clone().detach().to(device)
+    # decompose
+    relevant = blob * output
+    irrelevant = (1 - blob) * output
 
-# list for probs
-all_probs = []
+    # propagate layers
+    with torch.no_grad():
+        # growth rate = 4; block config = (6, 12, 24, 16)
+        if model.module.dropout:
+            # adaptive avgpooling and maxpooling
+            rel0, irrel0 = propagate_avgpooling(relevant, irrelevant, mods[12])
+            rel1, irrel1 = propagate_pooling(relevant, irrelevant, mods[13])
+            relevant, irrelevant = torch.cat((rel0, rel1), dim=1), torch.cat((irrel0, irrel1), dim=1)
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # reshape
+            relevant = relevant.view(relevant.size(0), -1)
+            irrelevant = irrelevant.view(irrelevant.size(0), -1)
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # bn1 layer
+            relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[14])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # fn1 layer
+            relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[15])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # ReLU layer
+            relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[16])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # bn2 layer
+            relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[17])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+        # reshape
+        relevant = relevant.view(relevant.size(0), -1)
+        irrelevant = irrelevant.view(irrelevant.size(0), -1)
+
+        # linear layer
+        relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[18])
+        scores.append((relevant.clone(), irrelevant.clone()))
+
+    return relevant.cpu(), irrelevant.cpu(), scores
+
+# true label
+true_label = pd.read_csv(trainer.test_split_file)['Target'].values
+
+# get test image
+for (images, labels, _) in tqdm(test_loader, total=int(np.ceil(test_dataset.num / test_batch_size))):
+    pass
+
+# test image
+test_image = images[2:3]
+test_label = labels[2:3]
+
+# viz test image
+# img_index = 0
+# viz.viz_channels_separate(test_image, img_index)
+# print(test_label)
+
+# move to cuda
+device = 'cuda'
+im = test_image.to(device)
+
+# get modules for network
+mods = forward_mods(net)
+mods.insert(0, norm) # add normalization in the beginning
+
+# get feature maps from targetted intermediate layers
+layer_ind = 11
+feature_maps = []
+with torch.no_grad():
+    for i, mod in enumerate(mods[:12]):
+        im = mod(im)
+        if i == layer_ind:
+            feature_maps += [im]
+
+    im0 = mods[12](im)
+    im1 = mods[13](im)
+    im = torch.cat((im0, im1), dim=1)
+    im = im.view(im.size(0), -1)
+
+    for i, mod in enumerate(mods[14:-1]):
+        im = mod(im)
+    im = im.view(im.size(0), -1)
+    output = mods[18](im)
+
+# get feature map
+target = feature_maps[-1]
+print(target.size())
+
+# relevant scores
+C, H, W = target.size()[1:]
+rel_scores = torch.zeros(len(test_image), C, H, W, NUM_CLASSES)
 
 with torch.no_grad():
-#     for n_iter, (images, labels, indices) in tqdm(enumerate(test_loader, 0), total=int(np.ceil(test_dataset.num / trainer.test_batch_size))):
-    for n_iter, (images, labels, indices) in tqdm(enumerate(test_loader, 0), total=int(np.ceil(test_dataset.num / 4))):
-        batch_size = len(images)
-        n += batch_size
-        if trainer.gpu_flag:
-            images = Variable(images.cuda(), volatile=True)
-        else:
-            images = Variable(images, volatile=True)
-
-        outputs = net(images)
-        logits = outputs
-
-        probs = trainer.logits_to_probs(logits.data)
-        all_probs += probs.cpu().numpy().reshape(-1).tolist() # collect all probs
-
-# save probability vectors
-all_probs = np.array(all_probs).reshape(-1, trainer.num_classes) # all_probs is an array of n-by-num_classes
-if trainer.save_probs:
-    np.save(trainer.result_prob_fname, all_probs)
-
-# save predicted labels
-df = prob_to_result(all_probs, img_ids) # prob_to_result located in net/loss_funcs/kaggle_metric.py; output pd.dataframe of img_ids and pred_list
-df.to_csv(trainer.result_csv_file, index=False, compression='gzip')
-
-# get F1-score
-truth = pd.read_csv(trainer.test_split_file)
-score = get_probs_f1_score(df, all_probs, truth, th=0.5)
-
-print('macro f1 score:%.5f' % score)
-
-pred_results = df.copy()
-pred_results['Target'] = truth['Target'].values
-
-### CD score ###
-this_dir = os.getcwd()
-lib_paths = [opj(this_dir, 'CD'), opj(this_dir, 'viz')]
-for lib_path in lib_paths:
-    if lib_path not in sys.path:
-        sys.path.insert(0, lib_path)
-from cd_propagate import *
-from cd import *
-# from viz import *
-import viz
-from copy import deepcopy
-from matplotlib import gridspec
-import pickle as pkl
-import itertools
-
-iterator = iter(test_loader)
-# relevant scores1
-n = 0
-
-images = iterator.next()[0]
-
-img_resize = 1024
-superpixel_size = 16
-h_num, w_num = int(img_resize/superpixel_size), int(img_resize/superpixel_size)
-
-rel_scores = torch.zeros(4, in_channels, img_resize, img_resize, NUM_CLASSES)
-
-with torch.no_grad():
-    batch_size = len(images)
-    n += batch_size
-    for c, h, w in itertools.product(range(in_channels), range(h_num), range(w_num)):
+    for c, h, w in itertools.product(range(C), range(H), range(W)):
         # set up blobs
-        blob = torch.zeros(images.size())
-        blob[:,c,h*superpixel_size:(h+1)*superpixel_size,w*superpixel_size:(w+1)*superpixel_size] = 1
+        blob = torch.zeros(target.size())
+        blob[:,c,h:(h+1),w:(w+1)] = 1
 
-        relevant, irrelevant, _ = cd_densenet(blob, images, net)
-        output, _ = forward_pass(images, net)
-        if torch.norm(relevant + irrelevant - output) > 1e-2:
+        relevant, irrelevant, _ = cd_activation_map(blob, target, net)
+        if torch.norm(relevant + irrelevant - output.cpu()) > 1e-3:
             print('sum of cd scores do not match the original ouput at (channel,height,width) =', (c,h,w))
 
-        rel_scores[:,c,h*superpixel_size:(h+1)*superpixel_size, \
-                        w*superpixel_size:(w+1)*superpixel_size,:] = relevant[:,None,None,:]
+        rel_scores[:,c,h:(h+1),w:(w+1),:] = relevant[:,None,None,:]
 
         print('\r iterations (channel,height,width) =', (c,h,w), end='')
 
-images = images.cpu().numpy()
+
+test_image = test_image.cpu().numpy()
+target = target.cpu().numpy()
 rel_scores = rel_scores.cpu().numpy()
-with open('images1.pkl','wb') as file:
-    pkl.dump(images, file)
-with open('cd_scores1.pkl','wb') as file:
-    pkl.dump(rel_scores, file)
-
-# relevant scores2
-n = 0
-
-images = iterator.next()[0]
-
-img_resize = 1024
-superpixel_size = 16
-h_num, w_num = int(img_resize/superpixel_size), int(img_resize/superpixel_size)
-
-rel_scores = torch.zeros(4, in_channels, img_resize, img_resize, NUM_CLASSES)
-
-with torch.no_grad():
-    batch_size = len(images)
-    n += batch_size
-    for c, h, w in itertools.product(range(in_channels), range(h_num), range(w_num)):
-        # set up blobs
-        blob = torch.zeros(images.size())
-        blob[:,c,h*superpixel_size:(h+1)*superpixel_size,w*superpixel_size:(w+1)*superpixel_size] = 1
-
-        relevant, irrelevant, _ = cd_densenet(blob, images, net)
-        output, _ = forward_pass(images, net)
-        if torch.norm(relevant + irrelevant - output) > 1e-2:
-            print('sum of cd scores do not match the original ouput at (channel,height,width) =', (c,h,w))
-
-        rel_scores[:,c,h*superpixel_size:(h+1)*superpixel_size, \
-                        w*superpixel_size:(w+1)*superpixel_size,:] = relevant[:,None,None,:]
-
-        print('\r iterations (channel,height,width) =', (c,h,w), end='')
-
-images = images.cpu().numpy()
-rel_scores = rel_scores.cpu().numpy()
-with open('images2.pkl','wb') as file:
-    pkl.dump(images, file)
-with open('cd_scores2.pkl','wb') as file:
+with open('test_image.pkl','wb') as file:
+    pkl.dump(test_image, file)
+with open('target.pkl','wb') as file:
+    pkl.dump(target, file)
+with open('rel_scores.pkl','wb') as file:
     pkl.dump(rel_scores, file)
