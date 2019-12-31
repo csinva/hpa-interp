@@ -9,7 +9,7 @@ from cd_propagate import *
 
 # normalize input tensors
 def norm(inputs):
-    x = inputs.clone().detach()
+    x = inputs.clone()
     mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
     std =  [0.122813, 0.085745, 0.129882, 0.119411]
     for i in range(x.size()[1]):
@@ -30,10 +30,11 @@ def cd_densenet(blob, im_torch, model):
 
     # set up blobs
     device = torch.device("cuda:0")
+    # blob = blob.double().to(device)
     blob = blob.to(device)
-    blob = torch.cuda.FloatTensor(blob)
 
     scores = []
+    # output = im_torch.clone().detach().double().to(device)
     output = im_torch.clone().detach().to(device)
     # decompose
     relevant = blob * output
@@ -182,6 +183,7 @@ def forward_pass(im_torch, model):
 
     outputs = []
     device = torch.device("cuda:0")
+    # output = im_torch.clone().detach().double().to(device)
     output = im_torch.clone().detach().to(device)
 
     output = norm(output)
