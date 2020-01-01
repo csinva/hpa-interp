@@ -7,8 +7,6 @@ from scipy.special import expit as sigmoid
 
 # propagate linear layer
 def propagate_linear(relevant, irrelevant, module, device='cuda'):
-    # bias = module(torch.zeros(irrelevant.size()).to(device))
-    # bias = module(torch.zeros(irrelevant.size()).to(device).double())
     dtype = relevant.dtype
     bias = module(torch.zeros(irrelevant.size(), dtype=dtype).to(device))
     rel = module(relevant) - bias
@@ -77,91 +75,23 @@ def propagate_batchnorm2d(relevant, irrelevant, module, device='cuda'):
     bias = module(torch.zeros(irrelevant.size(), dtype=dtype).to(device))
     rel = module(relevant) - bias
     irrel = module(irrelevant) - bias
+
     # elementwise proportional
-    # prop_rel = torch.abs(relevant)
-    # prop_irrel = torch.abs(irrelevant)
-    # prop_sum = prop_rel + prop_irrel
-    # prop_rel = torch.div(prop_rel, prop_sum)
-    # prop_rel[torch.isnan(prop_rel)] = 0.01
-    # rel = rel + torch.mul(prop_rel, bias)
-    # irrel = module(relevant + irrelevant) - rel
-    # return rel, irrel
     prop_rel = torch.abs(rel)
     prop_irrel = torch.abs(irrel)
     prop_sum = prop_rel + prop_irrel
     prop_rel = torch.div(prop_rel, prop_sum)
     prop_irrel = torch.div(prop_irrel, prop_sum)
     nan_ind = torch.isnan(prop_rel)
-    prop_rel[nan_ind] = .2
-    prop_irrel[nan_ind] = .8
-    return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
-    # return rel + 0.1*bias, irrel + 0.9*bias
-    # prop_rel[torch.isnan(prop_rel)] = .0
-    # rel = rel + torch.mul(prop_rel, bias)
-    # irrel = module(relevant + irrelevant) - rel
-    # return rel, irrel
+    prop_rel[nan_ind] = 1.
+    prop_irrel[nan_ind] = 0.
+    # return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
+    return rel + 0.5*bias, irrel + 0.5*bias
 
 
 # propagate batchnorm1d operation
 def propagate_batchnorm1d(relevant, irrelevant, module, device='cuda'):
-    dtype = relevant.dtype
-    bias = module(torch.zeros(irrelevant.size(), dtype=dtype).to(device))
-    rel = module(relevant) - bias
-    irrel = module(irrelevant) - bias
-    # elementwise proportional
-    # prop_rel = torch.abs(relevant)
-    # prop_irrel = torch.abs(irrelevant)
-    # prop_sum = prop_rel + prop_irrel
-    # prop_rel = torch.div(prop_rel, prop_sum)
-    # prop_rel[torch.isnan(prop_rel)] = 0.01
-    # rel = rel + torch.mul(prop_rel, bias)
-    # irrel = module(relevant + irrelevant) - rel
-    # return rel, irrel
-    prop_rel = torch.abs(rel)
-    prop_irrel = torch.abs(irrel)
-    prop_sum = prop_rel + prop_irrel
-    prop_rel = torch.div(prop_rel, prop_sum)
-    prop_irrel = torch.div(prop_irrel, prop_sum)
-    nan_ind = torch.isnan(prop_rel)
-    prop_rel[nan_ind] = .2
-    prop_irrel[nan_ind] = .8
-    return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
-    # return rel + 0.1*bias, irrel + 0.9*bias
-    # prop_rel[torch.isnan(prop_rel)] = .0
-    # rel = rel + torch.mul(prop_rel, bias)
-    # irrel = module(relevant + irrelevant) - rel
-    # return rel, irrel
-
-
-# propagate batchnorm1d operation
-# def propagate_batchnorm1d(relevant, irrelevant, module, device='cuda'):
-#     bias = module(torch.zeros(irrelevant.size()).to(device))
-#     # bias = module(torch.zeros(irrelevant.size()).to(device).double())
-#     rel = module(relevant) - bias
-#     irrel = module(irrelevant) - bias
-#     # elementwise proportional
-#     # prop_rel = torch.abs(relevant)
-#     # prop_irrel = torch.abs(irrelevant)
-#     # prop_sum = prop_rel + prop_irrel
-#     # prop_rel = torch.div(prop_rel, prop_sum)
-#     # prop_rel[torch.isnan(prop_rel)] = 0.01
-#     # rel = rel + torch.mul(prop_rel, bias)
-#     # irrel = module(relevant + irrelevant) - rel
-#     # return rel, irrel
-#     prop_rel = torch.abs(rel)
-#     prop_irrel = torch.abs(irrel)
-#     prop_sum = prop_rel + prop_irrel
-#     prop_rel = torch.div(prop_rel, prop_sum)
-#     prop_irrel = torch.div(prop_irrel, prop_sum)
-#     nan_ind = torch.isnan(prop_rel)
-#     prop_rel[nan_ind] = 0.5
-#     prop_irrel[nan_ind] = 0.5
-#     # return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
-#     return rel + 0.1*bias, irrel + 0.9*bias
-#     # prop_rel[torch.isnan(prop_rel)] = .0
-#     # rel = rel + torch.mul(prop_rel, bias)
-#     # irrel = module(relevant + irrelevant) - rel
-#     # return rel, irrel
+    return propagate_batchnorm2d(relevant, irrelevant, module, device)
 
 
 # propagate initial convolution operation

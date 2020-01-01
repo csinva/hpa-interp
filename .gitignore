@@ -17,3 +17,5 @@ env
 **.DS_Store
 bestfitting
 practice.ipynb
+**/data
+**/old

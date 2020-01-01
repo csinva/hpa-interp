@@ -29,12 +29,10 @@ def cd_densenet(blob, im_torch, model):
     mods.insert(0, norm) # add normalization in the beginning
 
     # set up blobs
-    device = torch.device("cuda:0")
-    # blob = blob.double().to(device)
+    device = torch.device("cuda")
     blob = blob.to(device)
 
     scores = []
-    # output = im_torch.clone().detach().double().to(device)
     output = im_torch.clone().detach().to(device)
     # decompose
     relevant = blob * output
@@ -180,33 +178,103 @@ def forward_pass(im_torch, model):
     # set up model
     model.eval()
     mods = forward_mods(model)
+    mods.insert(0, norm) # add normalization in the beginning
 
     outputs = []
-    device = torch.device("cuda:0")
-    # output = im_torch.clone().detach().double().to(device)
+    device = torch.device('cuda')
     output = im_torch.clone().detach().to(device)
 
-    output = norm(output)
-    outputs.append(output.clone())
     # propagate layers
     with torch.no_grad():
-        for i, mod in enumerate(mods[:11]):
+        for i, mod in enumerate(mods[:12]):
             output = mod(output)
             outputs.append(output.clone())
 
-        output0 = mods[11](output)
-        output1 = mods[12](output)
+        output0 = mods[12](output)
+        output1 = mods[13](output)
         output = torch.cat((output0, output1), dim=1)
         outputs.append(output.clone())
 
         output = output.view(output.size(0), -1)
-        outputs.append(output.clone())
 
-        for i, mod in enumerate(mods[13:-1]):
+        for i, mod in enumerate(mods[14:-1]):
             output = mod(output)
             outputs.append(output.clone())
 
         output = output.view(output.size(0), -1)
-        output = mods[17](output)
+        output = mods[18](output)
         outputs.append(output.clone())
     return output.cpu(), outputs
+
+
+# cd scores for densenet121
+### temp (remove later!!!) ###
+def cd_middle_layer(blob, im_torch, model):
+    '''CD Densenet
+    '''
+    # set up model
+    model.eval()
+
+    # get modules for network
+    mods = forward_mods(model)
+    mods.insert(0, norm) # add normalization in the beginning
+
+    # set up blobs
+    device = torch.device("cuda")
+    blob = blob.to(device)
+
+    scores = []
+    output = im_torch.clone().detach().to(device)
+    # decompose
+    relevant = blob * output
+    irrelevant = (1 - blob) * output
+
+    # propagate layers
+    with torch.no_grad():
+        # growth rate = 4; block config = (6, 12, 24, 16)
+        # initial convolution
+        # final batch norm
+        relevant, irrelevant = propagate_batchnorm2d(relevant, irrelevant, mods[10])
+        scores.append((relevant.clone(), irrelevant.clone()))
+
+        # ReLU layer
+        relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[11])
+        scores.append((relevant.clone(), irrelevant.clone()))
+
+        if model.module.dropout:
+            # adaptive avgpooling and maxpooling
+            rel0, irrel0 = propagate_avgpooling(relevant, irrelevant, mods[12])
+            rel1, irrel1 = propagate_pooling(relevant, irrelevant, mods[13])
+            relevant, irrelevant = torch.cat((rel0, rel1), dim=1), torch.cat((irrel0, irrel1), dim=1)
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # reshape
+            relevant = relevant.view(relevant.size(0), -1)
+            irrelevant = irrelevant.view(irrelevant.size(0), -1)
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # bn1 layer
+            relevant, irrelevant = propagate_batchnorm1d(relevant, irrelevant, mods[14])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # fn1 layer
+            relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[15])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # ReLU layer
+            relevant, irrelevant = propagate_relu(relevant, irrelevant, mods[16])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+            # bn2 layer
+            relevant, irrelevant = propagate_batchnorm1d(relevant, irrelevant, mods[17])
+            scores.append((relevant.clone(), irrelevant.clone()))
+
+        # reshape
+        relevant = relevant.view(relevant.size(0), -1)
+        irrelevant = irrelevant.view(irrelevant.size(0), -1)
+
+        # linear layer
+        relevant, irrelevant = propagate_linear(relevant, irrelevant, mods[18])
+        scores.append((relevant.clone(), irrelevant.clone()))
+
+    return relevant.cpu(), irrelevant.cpu(), scores

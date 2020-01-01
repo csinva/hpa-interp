@@ -94,7 +94,7 @@ def viz_channels_separate(imgs, img_index, rel_scores=None, pred_results=None):
         plt.show()
 
 
-def viz_channels_combined(imgs, img_index, pred_results=None):
+def viz_channels_combined(imgs, img_index, feature_importance=None):
     # get each image channel as a greyscale image
     img_red = imgs[img_index][0,:,:]
     img_green = imgs[img_index][1,:,:]
@@ -111,12 +111,19 @@ def viz_channels_combined(imgs, img_index, pred_results=None):
     img = cv2.add(img, blueRGB)
 
     #show result image
-    fig, ax = plt.subplots(figsize=(6,6))
-    ax.imshow(img)
-    ax.set_title("red + green + blue", fontsize=15)
-    ax.set_xticklabels([])
-    ax.set_yticklabels([])
-    ax.tick_params(left=False, bottom=False)
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(7,7))
+    img_viz = ax[0].imshow(img)
+    cam = np.zeros(img.shape[:2]) if feature_importance is None else feature_importance
+    cam_viz = ax[1].imshow(cam, cmap='RdBu')
+    titles = ['red + green + blue', 'feature importance']
+    for i, title in enumerate(titles):
+        ax[i].set_title(title, fontsize=15)
+        ax[i].set_xticklabels([])
+        ax[i].set_yticklabels([])
+        ax[i].tick_params(left=False, bottom=False)
+    plt.subplots_adjust(wspace=0, hspace=0)
+    cbar_ax = fig.add_axes([0.94, 0.325, 0.015, 0.3])
+    fig.colorbar(cam_viz, cax=cbar_ax)
     plt.show()
 
 
