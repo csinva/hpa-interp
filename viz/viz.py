@@ -63,8 +63,8 @@ def viz_channels_separate(imgs, img_index, rel_scores=None, pred_results=None):
         rel_yellow = rel_scores[img_index][3,:,:]
 
         # get scales for reletive scores
-        # vmin = torch.min(torch.min(torch.min(rel_scores[img_index,:,:,:], 1)[0], 1)[0]).item()
-        # vmax = torch.max(torch.max(torch.max(rel_scores[img_index,:,:,:], 1)[0], 1)[0]).item()
+        vmin = torch.min(rel_scores[img_index,:,:,:])
+        vmax = torch.max(rel_scores[img_index,:,:,:])
 
         fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(12,6))
         ax[0, 0].imshow(img_green, cmap="greens")
@@ -75,14 +75,14 @@ def viz_channels_separate(imgs, img_index, rel_scores=None, pred_results=None):
         ax[0, 2].set_title("Nucleus", fontsize=15)
         ax[0, 3].imshow(img_yellow, cmap="yellows")
         ax[0, 3].set_title("ER", fontsize=15)
-        # im = ax[1, 0].imshow(rel_green, cmap="RdBu", vmin=vmin, vmax=vmax)
-        # im = ax[1, 1].imshow(rel_red, cmap="RdBu", vmin=vmin, vmax=vmax)
-        # im = ax[1, 2].imshow(rel_blue, cmap="RdBu", vmin=vmin, vmax=vmax)
-        # im = ax[1, 3].imshow(rel_yellow, cmap="RdBu", vmin=vmin, vmax=vmax)
-        im = ax[1, 0].imshow(rel_green, cmap="RdBu")
-        im = ax[1, 1].imshow(rel_red, cmap="RdBu")
-        im = ax[1, 2].imshow(rel_blue, cmap="RdBu")
-        im = ax[1, 3].imshow(rel_yellow, cmap="RdBu")
+        im = ax[1, 0].imshow(rel_green, cmap="RdBu", vmin=vmin, vmax=vmax)
+        im = ax[1, 1].imshow(rel_red, cmap="RdBu", vmin=vmin, vmax=vmax)
+        im = ax[1, 2].imshow(rel_blue, cmap="RdBu", vmin=vmin, vmax=vmax)
+        im = ax[1, 3].imshow(rel_yellow, cmap="RdBu", vmin=vmin, vmax=vmax)
+        # im = ax[1, 0].imshow(rel_green, cmap="RdBu")
+        # im = ax[1, 1].imshow(rel_red, cmap="RdBu")
+        # im = ax[1, 2].imshow(rel_blue, cmap="RdBu")
+        # im = ax[1, 3].imshow(rel_yellow, cmap="RdBu")
         for i in range(2):
             for j in range(4):
                 ax[i, j].set_xticklabels([])

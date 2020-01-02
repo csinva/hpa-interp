@@ -83,10 +83,10 @@ def propagate_batchnorm2d(relevant, irrelevant, module, device='cuda'):
     prop_rel = torch.div(prop_rel, prop_sum)
     prop_irrel = torch.div(prop_irrel, prop_sum)
     nan_ind = torch.isnan(prop_rel)
-    prop_rel[nan_ind] = 1.
-    prop_irrel[nan_ind] = 0.
-    # return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
-    return rel + 0.5*bias, irrel + 0.5*bias
+    prop_rel[nan_ind] = 0.5
+    prop_irrel[nan_ind] = 0.5
+    return rel + torch.mul(prop_rel, bias), irrel + torch.mul(prop_irrel, bias)
+    # return rel + 0.5*bias, irrel + 0.5*bias
 
 
 # propagate batchnorm1d operation
