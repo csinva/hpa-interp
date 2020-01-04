@@ -76,7 +76,7 @@ def grad_CAM(im, model, layer_ind=9, label_ind=2):
         cam += w * target[i,:,:]
 
     # relu
-    cam = np.maximum(cam, 0)
+    # cam = np.maximum(cam, 0)
     cam = cv2.resize(cam, (1024, 1024))
     # cam = cam - np.min(cam)
     # cam = cam / np.max(cam)

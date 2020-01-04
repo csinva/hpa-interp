@@ -8,7 +8,7 @@ from cd_propagate import *
 
 
 # normalize input tensors
-def norm(inputs):
+def norm(inputs: torch.Tensor):
     x = inputs.clone()
     mean = [0.074598, 0.050630, 0.050891, 0.076287]#rgby
     std =  [0.122813, 0.085745, 0.129882, 0.119411]
@@ -18,28 +18,34 @@ def norm(inputs):
 
 
 # cd scores for densenet121
-def cd_densenet(blob, im_torch, model):
+def cd_densenet(im_torch: torch.Tensor, model, mask=None, device='cuda'):
     '''CD Densenet
     '''
     # set up model
     model.eval()
+    model = model.to(device)
+    im_torch = im_torch.to(device)
+
+    # type of tensor
+    dtype = im_torch.dtype
 
     # get modules for network
     mods = forward_mods(model)
-    mods.insert(0, norm) # add normalization in the beginning
 
-    # set up blobs
-    device = torch.device("cuda")
-    blob = blob.to(device)
+    # set up masks
+    if not mask is None:
+        mask = mask.type(dtype).to(device)
+        relevant = mask * im_torch
+        irrelevant = (1 - mask) * im_torch
+    else:
+        print('invalid arguments')
+    # decompose
+    relevant = relevant.to(device)
+    irrelevant = irrelevant.to(device)
 
     scores = []
-    output = im_torch.clone().detach().to(device)
-    # decompose
-    relevant = blob * output
-    irrelevant = (1 - blob) * output
-
     # normalization
-    relevant, irrelevant = blob * mods[0](relevant + irrelevant), (1 - blob) * mods[0](relevant + irrelevant)
+    relevant, irrelevant = mask * mods[0](relevant + irrelevant), (1 - mask) * mods[0](relevant + irrelevant)
     scores.append((relevant.clone(), irrelevant.clone()))
 
     # propagate layers
@@ -99,7 +105,6 @@ def cd_densenet(blob, im_torch, model):
             # reshape
             relevant = relevant.view(relevant.size(0), -1)
             irrelevant = irrelevant.view(irrelevant.size(0), -1)
-            scores.append((relevant.clone(), irrelevant.clone()))
 
             # bn1 layer
             relevant, irrelevant = propagate_batchnorm1d(relevant, irrelevant, mods[14])
@@ -159,6 +164,7 @@ def forward_mods(model):
     else:
         append_mod(False, nn.AdaptiveAvgPool2d(1), mods)
     append_mod(model_mods[442], model.module.logit, mods)
+    mods.insert(0, norm) # add normalization in the beginning
     return mods
 
 
@@ -174,14 +180,15 @@ def append_mod(net_mod, mod, list_of_modules):
             raise ValueError
 
 
-def forward_pass(im_torch, model):
+def forward_pass(im_torch: torch.Tensor, model, device='cuda'):
     # set up model
     model.eval()
+    model = model.to(device)
+
+    # get modules for network
     mods = forward_mods(model)
-    mods.insert(0, norm) # add normalization in the beginning
 
     outputs = []
-    device = torch.device('cuda')
     output = im_torch.clone().detach().to(device)
 
     # propagate layers
@@ -209,25 +216,32 @@ def forward_pass(im_torch, model):
 
 # cd scores for densenet121
 ### temp (remove later!!!) ###
-def cd_middle_layer(blob, im_torch, model):
+def cd_middle_layer(im_torch: torch.Tensor, model, mask=None, device='cuda'):
     '''CD Densenet
     '''
     # set up model
     model.eval()
+    model = model.to(device)
+    im_torch = im_torch.to(device)
+
+    # type of tensor
+    dtype = im_torch.dtype
 
     # get modules for network
     mods = forward_mods(model)
-    mods.insert(0, norm) # add normalization in the beginning
 
-    # set up blobs
-    device = torch.device("cuda")
-    blob = blob.to(device)
+    # set up masks
+    if not mask is None:
+        mask = mask.type(dtype).to(device)
+        relevant = mask * im_torch
+        irrelevant = (1 - mask) * im_torch
+    else:
+        print('invalid arguments')
+    # decompose
+    relevant = relevant.to(device)
+    irrelevant = irrelevant.to(device)
 
     scores = []
-    output = im_torch.clone().detach().to(device)
-    # decompose
-    relevant = blob * output
-    irrelevant = (1 - blob) * output
 
     # propagate layers
     with torch.no_grad():
